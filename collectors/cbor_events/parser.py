@@ -36,7 +36,13 @@ class ParsedCommandLine:
                 if argument != None:
                     value["argument"] = argument
                 elem_type = "Option"
-            if elem_type == "CLArgument":
+            elif elem_type == "CLInherentBehaviour":
+                data = value
+                value = dict()
+                value["name"] = "inherent"
+                value["behaviours"] = [data]
+                elem_type = "Option"
+            elif elem_type == "CLArgument":
                 data = value
                 value = dict()
                 value["type"] = list(data.keys())[0]

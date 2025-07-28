@@ -22,6 +22,7 @@ import parser
 import hashlib
 import logging
 logger = logging.getLogger(__name__)
+import requests
 
 def setup_logging():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -309,6 +310,7 @@ def handle_data(data, session: Session):
                                 })
                 queue_element["behaviours"].has_been_processed = True
             if len(behaviour_node_list) != 0:
+                print(behaviour_node_list)
                 session.run(
                     """
                     UNWIND $events AS event
@@ -376,8 +378,8 @@ def main(file_path, driver: Driver):
                     # handle_data(data, driver)
                 except EOFError:
                     break
-                except Exception as e:
-                    logger.error(f"Error reading CBOR data: {e}")
+                except requests.exceptions.ConnectionError as e:
+                    logger.error(f"Connection error occurred: {e}")
                 except KeyboardInterrupt:
                     print("Exiting...")
                     break
