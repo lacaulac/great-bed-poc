@@ -1,4 +1,4 @@
-# Copyright (C) 2025  Antonin Verdier
+# Copyright (C) 2025  Antonin Verdier & Institut de Recherche en Informatique de Toulouse
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
