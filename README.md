@@ -1,9 +1,7 @@
 # GReAT-BeD PoC implementation
 
 A proof-of-concept implementation of the [GReAT-BeD framework](https://github.com/lacaulac/GReAT-BeD), pre-print paper available *relatively* soon.
-The `sysdig` LUA chisel and justfile are under MIT license. The python-part of the proof-of-concept is released under GPL 3.
-
-This proof-of-concept uses the [LUA CBOR implementation](https://github.com/Zash/lua-cbor) provided by Zash, mkluwe and Kristopher38.
+The proof-of-concept is released under GPL 3. Please note that this repository includes MIT-licensed `cbor.lua`, from the [LUA CBOR implementation](https://github.com/Zash/lua-cbor) provided by Zash, mkluwe and Kristopher38. A copy of the license is included in `LICENSE-mit`
 
 ## Dependencies
 
@@ -47,5 +45,5 @@ This will start the PoC, listening for events happening for user 1000. The sysdi
 
 ## Limitations
 
-# PID Limit
+### PID Limit
 The identification of a specific process is done by its process ID, Parent Process ID and program name as well as its command line arguments. This is far from perfect, as theoritically speaking, there could be duplicates of the same process ID and command line arguments, which could lead to confusion when trying to identify a specific process. As this is unlikely, we do not have anything planned to detect such cases.
