@@ -23,6 +23,7 @@ import hashlib
 import logging
 logger = logging.getLogger(__name__)
 import requests
+import uuid
 
 def setup_logging():
     logging.basicConfig(level=logging.INFO, format='[GReAT-BeD][%(levelname)s] %(asctime)s - %(message)s')
@@ -224,6 +225,9 @@ def get_process_identifier(pid: int, ppid: int, name: str, arglist: list[str]) -
 def is_process_already_tracked(upid: str, session: Session) -> bool:
     res = session.run("MATCH (p:Process {upid: $upid}) RETURN p", upid=upid)
     return len(list(res)) != 0
+
+def get_uuid():
+    return str(uuid.uuid4())
 
 def handle_data(data, session: Session):
     already_parsed_upid = set() # Avoid asking Neo4J 10 times in a row
