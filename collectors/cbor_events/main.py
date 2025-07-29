@@ -227,6 +227,7 @@ def is_process_already_tracked(upid: str, session: Session) -> bool:
     return len(list(res)) != 0
 
 def handle_data(data, session: Session):
+    already_parsed_upid = set() # Avoid asking Neo4J 10 times in a row
     if isinstance(data, dict):
         # Decode the CBOR data
         event_data = FSEventData(data)
@@ -241,10 +242,16 @@ def handle_data(data, session: Session):
                 try:
                     event_data = query_queue.get_nowait()
                     universal_process_identifier = get_process_identifier(event_data.pid, event_data.ppid, event_data.procname, event_data.procargs)
-                    is_tracked = is_process_already_tracked(universal_process_identifier, session)
+                    # First, check if the process's tracking state is cached
+                    is_tracked = universal_process_identifier in already_parsed_upid
+                    # If it isn't, check if it's already tracked in the database
+                    if not is_tracked:
+                        is_tracked = is_process_already_tracked(universal_process_identifier, session)
                     # Only parse the commandline if it hasn't been done yet
                     if is_tracked:
                         parsed_commandline = None
+                        # Add the process to the already_parsed_upid set, to speed up future checks
+                        already_parsed_upid.add(universal_process_identifier)
                     else:
                         parsed_commandline = cl_parser.parse(parser.ParserRequest(event_data.procname, event_data.procargs))
                     #logger.info(f"\tGot {parsed_commandline.elements}")
