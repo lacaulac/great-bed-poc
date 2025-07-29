@@ -13,8 +13,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from requests import Session
+from requests import Session, exceptions
 import json
+import logging
+logger = logging.getLogger(__name__)
+
+def setup_logging():
+    logging.basicConfig(level=logging.INFO, format='[PARSER] %(asctime)s - %(levelname)s - %(message)s')
+
+setup_logging()
 
 class ParsedCommandLine:
     def __init__(self, parser_output):
@@ -92,7 +99,7 @@ class Parser:
         self.url = url
         self.cache = ParserCache()
 
-    def parse(self, data: ParserRequest) -> ParsedCommandLine:
+    def parse(self, data: ParserRequest) -> ParsedCommandLine | None:
         """Parse the given CLI data and return the parsed CLI with behavioural information"""
         cache_key = data._into_key()
         cached_result = self.cache.get(cache_key)
@@ -100,7 +107,14 @@ class Parser:
             self.from_cache = True
             return cached_result
         response = self.session.post(self.url + "/behaviours", headers={"Content-Type": "application/json"}, data=json.dumps(data._get_dict()))
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except exceptions.HTTPError as e:
+            if response.status_code == 404:
+                logger.warning("No configuration file was found for the target program")
+            else:
+                print(f"Failed to parse command: {e}")
+            return None
         result = ParsedCommandLine(response.json())
         self.cache.set(cache_key, result)
         return result
@@ -112,5 +126,8 @@ if __name__ == "__main__":
     parser = Parser("http://localhost:6880")
     request = ParserRequest("tar", ["-x", "--file", "archive.tar", "-v", "/tmp/hello.txt"])
     result = parser.parse(request)
-    print(result.elements)
+    if result:
+        print(result.elements)
+    else:
+        logger.error("Parser module failed to parse command")
     parser.close()

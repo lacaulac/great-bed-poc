@@ -238,7 +238,7 @@ def handle_data(data, session: Session):
                     event_data = query_queue.get_nowait()
                     parsed_commandline = cl_parser.parse(parser.ParserRequest(event_data.procname, event_data.procargs))
                     #logger.info(f"\tGot {parsed_commandline.elements}")
-                    logger.info(f"Handling event {event_data.pid}-{event_data.type}->{event_data.name}")
+                    logger.info(f"Handling event {event_data.pid} {event_data.procname}-{event_data.type}->{event_data.name}")
                     # print(f"\t{event_data.procargs}")
                     universal_process_identifier = get_process_identifier(event_data.pid, event_data.ppid, event_data.procname, event_data.procargs)
                     logger.info(f"Got UPID {universal_process_identifier} for {event_data.pid}->{event_data.procname}")
@@ -252,17 +252,18 @@ def handle_data(data, session: Session):
                         "procname": event_data.procname,
                         "procargs": event_data.procargs,
                     })
-                    similar_queue.append({
-                        "pid": event_data.pid,
-                        "ppid": event_data.ppid,
-                        "upid": universal_process_identifier,
-                        "type": event_data.type,
-                        "name": event_data.name,
-                        "username": event_data.username,
-                        "procname": event_data.procname,
-                        "procargs": event_data.procargs,
-                        "behaviours": parsed_commandline
-                    })
+                    if parsed_commandline:
+                        similar_queue.append({
+                            "pid": event_data.pid,
+                            "ppid": event_data.ppid,
+                            "upid": universal_process_identifier,
+                            "type": event_data.type,
+                            "name": event_data.name,
+                            "username": event_data.username,
+                            "procname": event_data.procname,
+                            "procargs": event_data.procargs,
+                            "behaviours": parsed_commandline
+                        })
                 except queue.Empty: #Turns out the queue is empty (thank you queue.qsize())
                     break
 
@@ -310,7 +311,6 @@ def handle_data(data, session: Session):
                                 })
                 queue_element["behaviours"].has_been_processed = True
             if len(behaviour_node_list) != 0:
-                print(behaviour_node_list)
                 session.run(
                     """
                     UNWIND $events AS event
@@ -330,9 +330,6 @@ def handle_data(data, session: Session):
                     """,
                     events=argument_node_list,
                 )
-
-            #TODO Insert the behaviours in the database (like line 235)
-            #TODO Insert the arguments in the database (like line 235)
 
         # print(f"PID: {event_data.pid}, Type: {event_data.type}, Name: {event_data.name}")
 
