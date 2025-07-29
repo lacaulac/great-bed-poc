@@ -222,6 +222,10 @@ def handle_clone_event(data, pipe_table: PipeFDTable):
 def get_process_identifier(pid: int, ppid: int, name: str, arglist: list[str]) -> str:
     return hashlib.sha1(f"{pid}-{ppid}-{name}-{arglist}".encode()).hexdigest()
 
+def is_process_already_tracked(upid: str, session: Session) -> bool:
+    res = session.run("MATCH (p:Process {upid: $upid}) RETURN p", upid=upid)
+    return len(list(res)) != 0
+
 def handle_data(data, session: Session):
     if isinstance(data, dict):
         # Decode the CBOR data
@@ -236,11 +240,16 @@ def handle_data(data, session: Session):
             for i in range(query_trigger):
                 try:
                     event_data = query_queue.get_nowait()
-                    parsed_commandline = cl_parser.parse(parser.ParserRequest(event_data.procname, event_data.procargs))
+                    universal_process_identifier = get_process_identifier(event_data.pid, event_data.ppid, event_data.procname, event_data.procargs)
+                    is_tracked = is_process_already_tracked(universal_process_identifier, session)
+                    # Only parse the commandline if it hasn't been done yet
+                    if is_tracked:
+                        parsed_commandline = None
+                    else:
+                        parsed_commandline = cl_parser.parse(parser.ParserRequest(event_data.procname, event_data.procargs))
                     #logger.info(f"\tGot {parsed_commandline.elements}")
                     logger.info(f"Handling event {event_data.pid} {event_data.procname}-{event_data.type}->{event_data.name}")
                     # print(f"\t{event_data.procargs}")
-                    universal_process_identifier = get_process_identifier(event_data.pid, event_data.ppid, event_data.procname, event_data.procargs)
                     logger.info(f"Got UPID {universal_process_identifier} for {event_data.pid}->{event_data.procname}")
                     process_queue.append({
                         "pid": event_data.pid,
