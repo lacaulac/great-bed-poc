@@ -18,10 +18,6 @@ import json
 import logging
 logger = logging.getLogger(__name__)
 
-def setup_logging():
-    logging.basicConfig(level=logging.INFO, format='[PARSER] %(asctime)s - %(levelname)s - %(message)s')
-
-setup_logging()
 
 class ParsedCommandLine:
     def __init__(self, parser_output):

@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 import requests
 
 def setup_logging():
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(level=logging.INFO, format='[GReAT-BeD][%(levelname)s] %(asctime)s - %(message)s')
 
 setup_logging()
 
@@ -138,7 +138,6 @@ class FSEventData:
         self.username = raw_object[b"username"].decode(encoding="utf-8")
         self.procname = raw_object[b"procname"].decode(encoding="utf-8")
         tmp_procargs = raw_object[b"procargs"]
-        print(tmp_procargs)
         # Split the procargs into a list of arguments on NULL bytes
         self.procargs = [e.decode('utf-8') for e in tmp_procargs.split(b'\t')][1:]
         self.isfileapipe = raw_object[b"ispipe"]
@@ -257,7 +256,7 @@ def handle_data(data, session: Session):
                     #logger.info(f"\tGot {parsed_commandline.elements}")
                     logger.info(f"Handling event {event_data.pid} {event_data.procname}-{event_data.type}->{event_data.name}")
                     # print(f"\t{event_data.procargs}")
-                    logger.info(f"Got UPID {universal_process_identifier} for {event_data.pid}->{event_data.procname}")
+                    # logger.info(f"Got UPID {universal_process_identifier} for {event_data.pid}->{event_data.procname}")
                     process_queue.append({
                         "pid": event_data.pid,
                         "ppid": event_data.ppid,
@@ -387,7 +386,7 @@ def main(file_path, driver: Driver):
                     #     handle_clone_event(data, pipe_table)
                     else:
                         event_kind = data[b"kind"].decode(encoding="utf-8")
-                        logger.warning(f"Unknown event kind: {event_kind}")
+                        logger.debug(f"Unknown event kind: {event_kind}")
                     # handle_data(data, driver)
                 except EOFError:
                     break
