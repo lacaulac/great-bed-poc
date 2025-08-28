@@ -296,58 +296,220 @@ def handle_data(data, session: Session):
                 """,
                 events=process_queue,
             )
-            behaviour_node_list = []
-            argument_node_list = []
-            arguments_of_behaviour_list = []
+            # We'll collect behaviours and arguments and attach them according to the
+            # rules requested by the user:
+            # - If there are no inherent behaviours: attach all parser behaviours/args to the Process
+            # - If there are >=2 inherent behaviours: attach all inherent (and other) behaviours to the Process
+            # - If there is exactly 1 inherent behaviour: attach that inherent behaviour to the Process;
+            #   attach all other behaviours and arguments as children of that inherent behaviour
+            behaviour_node_list = []                # Process -> Behaviour events
+            argument_node_list = []                 # Process -> Argument events
+            behaviour_parent_child_list = []        # ParentBehaviour -> ChildBehaviour events
+            behaviour_parent_argument_list = []     # ParentBehaviour -> Argument events
+
             for queue_element in similar_queue:
-                if not queue_element["behaviours"].has_been_processed:
-                    # If this was the first time that the commandline was parsed
-                    # Add graph nodes for the child behaviours
-                    for child_behaviour in queue_element["behaviours"].elements:
-                        if child_behaviour["type"] == "Option":
-                            for behaviour in child_behaviour["value"]["behaviours"]:
-                                behaviour_node_list.append({
-                                    "pid": event_data.pid,
-                                    "ppid": event_data.ppid,
-                                    "upid": queue_element["upid"],
-                                    "username": event_data.username,
-                                    "procname": event_data.procname,
-                                    "procargs": event_data.procargs,
-                                    "behaviour": behaviour
+                if queue_element["behaviours"].has_been_processed:
+                    continue
+
+
+                # collect behaviours and arguments from parsed commandline
+                # behaviour_option_map: behaviour string -> set(option_name)
+                from collections import defaultdict
+                behaviour_option_map = defaultdict(set)
+                behaviour_option_arg_map = dict()  # (beh, opt) -> {argument, type}
+                arguments = []
+
+                for child_behaviour in queue_element["behaviours"].elements:
+                    if child_behaviour["type"] == "Option":
+                        opt_name = child_behaviour["value"].get("name", "")
+                        # extract option-level argument if present
+                        raw_opt_arg = child_behaviour["value"].get("argument", None)
+                        def _extract_opt_arg(raw):
+                            if raw is None:
+                                return None
+                            # if it's already in {"type":.., "value":..} form
+                            if isinstance(raw, dict) and "type" in raw and "value" in raw:
+                                return {"argument": raw["value"], "type": raw["type"]}
+                            # if it's a dict with a single key (e.g. {"SOME": val})
+                            if isinstance(raw, dict) and len(raw) == 1:
+                                k = next(iter(raw.keys()))
+                                v = raw[k]
+                                # if v is a dict with single value
+                                if isinstance(v, dict) and len(v) == 1:
+                                    t = next(iter(v.keys()))
+                                    return {"argument": v[t], "type": t}
+                                return {"argument": v, "type": str(k)}
+                            # fallback to string
+                            return {"argument": str(raw), "type": "unknown"}
+
+                        opt_arg = _extract_opt_arg(raw_opt_arg)
+                        for behaviour in child_behaviour["value"]["behaviours"]:
+                            # behaviour may itself be a list (grouped inherent behaviours)
+                            if isinstance(behaviour, (list, tuple)):
+                                for single in behaviour:
+                                    behaviour_option_map[single].add(opt_name)
+                                    if opt_arg is not None:
+                                        behaviour_option_arg_map[(single, opt_name)] = opt_arg
+                            else:
+                                behaviour_option_map[behaviour].add(opt_name)
+                                if opt_arg is not None:
+                                    behaviour_option_arg_map[(behaviour, opt_name)] = opt_arg
+                    elif child_behaviour["type"] == "Argument":
+                        arguments.append({
+                            "argument": child_behaviour["value"]["value"],
+                            "type": child_behaviour["value"]["type"],
+                        })
+
+                # prepare common metadata
+                common = {
+                    "pid": queue_element["pid"],
+                    "ppid": queue_element["ppid"],
+                    "upid": queue_element["upid"],
+                    "username": queue_element["username"],
+                    "procname": queue_element["procname"],
+                    "procargs": queue_element["procargs"],
+                }
+
+                # decide inherent behaviours (those that have option name 'inherent')
+                inherent_behaviours = {beh for beh, opts in behaviour_option_map.items() if 'inherent' in opts}
+
+                # Apply attachment rules using behaviour+option pairs (so two identical behaviour
+                # strings with different option names won't be merged)
+                if len(inherent_behaviours) == 0:
+                    # attach all behaviour+option pairs to Process
+                    for beh in sorted(behaviour_option_map.keys()):
+                        for opt in sorted(behaviour_option_map[beh]):
+                            evt = dict(common)
+                            evt["behaviour"] = beh
+                            evt["option"] = opt
+                            behaviour_node_list.append(evt)
+                            # attach option-level argument (if any) as child of the behaviour node
+                            opt_key = (beh, opt)
+                            if opt_key in behaviour_option_arg_map:
+                                arg = behaviour_option_arg_map[opt_key]
+                                behaviour_parent_argument_list.append({
+                                    **common,
+                                    "parent_behaviour": beh,
+                                    "parent_option": opt,
+                                    **arg,
                                 })
-                            # If the option's got an argument, also add the argument node in the arguments_of_behaviour_list
-                            # TODO: Add graph nodes for the argument into the arguments_of_behaviour_list
-                        elif child_behaviour["type"] == "Argument":
-                            argument_node_list.append({
-                                "pid": event_data.pid,
-                                "ppid": event_data.ppid,
-                                "upid": queue_element["upid"],
-                                "username": event_data.username,
-                                "procname": event_data.procname,
-                                "procargs": event_data.procargs,
-                                "argument": child_behaviour["value"]["value"],
-                                "type": child_behaviour["value"]["type"]
+                    # attach all arguments to Process
+                    for arg in arguments:
+                        evt = dict(common)
+                        evt.update(arg)
+                        argument_node_list.append(evt)
+
+                elif len(inherent_behaviours) >= 2:
+                    # attach all behaviour+option pairs to Process (inherent + others)
+                    for beh in sorted(behaviour_option_map.keys()):
+                        for opt in sorted(behaviour_option_map[beh]):
+                            evt = dict(common)
+                            evt["behaviour"] = beh
+                            evt["option"] = opt
+                            behaviour_node_list.append(evt)
+                            # attach option-level argument (if any) as child of the behaviour node
+                            opt_key = (beh, opt)
+                            if opt_key in behaviour_option_arg_map:
+                                arg = behaviour_option_arg_map[opt_key]
+                                behaviour_parent_argument_list.append({
+                                    **common,
+                                    "parent_behaviour": beh,
+                                    "parent_option": opt,
+                                    **arg,
                                 })
+                    # arguments remain children of Process
+                    for arg in arguments:
+                        evt = dict(common)
+                        evt.update(arg)
+                        argument_node_list.append(evt)
+
+                else:  # exactly one inherent behaviour
+                    inherent = next(iter(inherent_behaviours))
+                    # attach only the inherent behaviour (with option 'inherent') to the Process
+                    evt = dict(common)
+                    evt["behaviour"] = inherent
+                    evt["option"] = 'inherent'
+                    behaviour_node_list.append(evt)
+
+                    # all other behaviour+option pairs become children of the inherent behaviour node
+                    for beh in sorted(behaviour_option_map.keys()):
+                        for opt in sorted(behaviour_option_map[beh]):
+                            # skip the parent inherent pair itself
+                            if beh == inherent and opt == 'inherent':
+                                continue
+                            behaviour_parent_child_list.append({
+                                **common,
+                                "parent_behaviour": inherent,
+                                "parent_option": 'inherent',
+                                "child_behaviour": beh,
+                                "child_option": opt,
+                            })
+
+                    # attach arguments as children of the inherent behaviour node
+                    for arg in arguments:
+                        behaviour_parent_argument_list.append({
+                            **common,
+                            "parent_behaviour": inherent,
+                            "parent_option": 'inherent',
+                            **arg,
+                        })
+                    # attach option-level arguments: all option args become children of the inherent behaviour
+                    for (beh, opt), arg in behaviour_option_arg_map.items():
+                        behaviour_parent_argument_list.append({
+                            **common,
+                            "parent_behaviour": inherent,
+                            "parent_option": 'inherent',
+                            **arg,
+                        })
+
                 queue_element["behaviours"].has_been_processed = True
+
+            # Create/attach Behaviour nodes to Process
             if len(behaviour_node_list) != 0:
                 session.run(
                     """
                     UNWIND $events AS event
                     MERGE (p:Process {pid: event.pid, upid: event.upid, username: event.username, procname: event.procname, procargs: event.procargs})
-                    MERGE (b:Behaviour {behaviour: event.behaviour, upid: event.upid})
+                    MERGE (b:Behaviour {behaviour: event.behaviour, option: event.option, upid: event.upid})
                     MERGE (p)-[:BHV {}]->(b)
                     """,
                     events=behaviour_node_list,
                 )
+
+            # Create Argument nodes attached to Process
             if len(argument_node_list) != 0:
                 session.run(
                     """
                     UNWIND $events AS event
-                    MERGE (p:Process {pid: event.pid, username: event.username, procname: event.procname, procargs: event.procargs})
+                    MERGE (p:Process {pid: event.pid, upid: event.upid, username: event.username, procname: event.procname, procargs: event.procargs})
                     MERGE (a:Argument {argument: event.argument, type: event.type, upid: event.upid})
                     MERGE (p)-[:BHV {}]->(a)
                     """,
                     events=argument_node_list,
+                )
+
+            # Create parent -> child Behaviour relationships (for the single-inherent case)
+            if len(behaviour_parent_child_list) != 0:
+                session.run(
+                    """
+                    UNWIND $events AS event
+                    MERGE (parent:Behaviour {behaviour: event.parent_behaviour, option: event.parent_option, upid: event.upid})
+                    MERGE (child:Behaviour {behaviour: event.child_behaviour, option: event.child_option, upid: event.upid})
+                    MERGE (parent)-[:BHV {}]->(child)
+                    """,
+                    events=behaviour_parent_child_list,
+                )
+
+            # Create parent Behaviour -> Argument relationships (single-inherent case)
+            if len(behaviour_parent_argument_list) != 0:
+                session.run(
+                    """
+                    UNWIND $events AS event
+                    MERGE (parent:Behaviour {behaviour: event.parent_behaviour, option: event.parent_option, upid: event.upid})
+                    MERGE (a:Argument {argument: event.argument, type: event.type, upid: event.upid})
+                    MERGE (parent)-[:BHV {}]->(a)
+                    """,
+                    events=behaviour_parent_argument_list,
                 )
 
         # print(f"PID: {event_data.pid}, Type: {event_data.type}, Name: {event_data.name}")
