@@ -236,7 +236,7 @@ def handle_data(data, session: Session):
         event_data = FSEventData(data)
         query_queue.put(event_data)
 
-        if query_queue.qsize() >= query_trigger:
+        if query_queue.qsize() >= query_trigger or True:
             # Process the queue
             logger.info(f"Processing {query_queue.qsize()} events...")
             process_queue = []
