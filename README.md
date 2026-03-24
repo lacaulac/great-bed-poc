@@ -58,3 +58,6 @@ If a process is cloned, the child process will not have its command-line argumen
 
 ### Processes created before the event collection starts
 If a process is created before the event collection starts, the events (*e.g.*, read/write events) will not be processed.
+
+### Clone and vfork system calls
+The vfork system call handling (as used by sh, whereas bash invokes clone to create child processes) is handled as a clone system call, so maybe stuff won't work as it's supposed to for vfork :(
