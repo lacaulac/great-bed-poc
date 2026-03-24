@@ -43,7 +43,7 @@ After having started the [command-line parser](https://github.com/lacaulac/unive
 just rc-colsel
 ```
 
-This will start the PoC, listening for events happening for user 1000. The sysdig process executes the `cbor_events.lua` chisel and writes CBOR-encoded datastructures that represent the events captured by sysdig into a randomly-named pipe, that is then read by the python script.
+This will start the PoC, listening for events happening for user 1001 (see line 7 of `justfile`). The sysdig process executes the `cbor_events.lua` chisel and writes CBOR-encoded datastructures that represent the events captured by sysdig into a randomly-named pipe, that is then read by the python script.
 
 ## Limitations
 
