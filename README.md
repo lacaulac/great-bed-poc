@@ -34,6 +34,8 @@ This modification allows us to obtain the command line arguments of a process in
 - `ls "Hello world" exclamationmark`
 - `ls Hello "world exclamationmark "`
 
+*Note:* sysdig must be built once for all dependencies (including libsinsp) to be downloaded. Afterwards, the file should be in build/falcosecurity-libs-repo/falcosecurity-libs-prefix/src/falcosecurity-libs/userspace/libsinsp/ (observed on 2026-02-24)
+
 ## Running the PoC
 After having started the [command-line parser](https://github.com/lacaulac/universal-cli-parser), the easiest way to run the PoC is to run the following commands:
 
@@ -46,4 +48,13 @@ This will start the PoC, listening for events happening for user 1000. The sysdi
 ## Limitations
 
 ### PID Limit
-The identification of a specific process is done by its process ID, Parent Process ID and program name as well as its command line arguments. This is far from perfect, as theoritically speaking, there could be duplicates of the same process ID and command line arguments, which could lead to confusion when trying to identify a specific process. As this is unlikely, we do not have anything planned to detect such cases.
+The identification of a specific process is done by its process ID. This is far from perfect, as theoritically speaking, there could be duplicates of the same process ID over time, but it is sufficient for our proof-of-concept.
+
+### Multiple execve on the same process
+If a process executes multiple execve system calls, only the first one will be processed. This avoids obtaining a behaviour graph structure that has not been formally verified to be compatible with the extraction of Indicators of Attack.
+
+### Child process without an execve
+If a process is cloned, the child process will not have its command-line arguments parsed.
+
+### Processes created before the event collection starts
+If a process is created before the event collection starts, the events (*e.g.*, read/write events) will not be processed.

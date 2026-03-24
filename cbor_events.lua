@@ -167,12 +167,37 @@ function log_read_or_write(op_type)
     end
 end
 
+function log_execve()
+    if evt.field(fdir) == "<" then
+        name = evt.field(filename)
+        fd_value = evt.field(f_fdvalue)
+        evt_pid = evt.field(pid)
+        evt_ppid = evt.field(ppid)
+        -- print("Read by " .. evt.field(procname) .. ": " .. name)
+        that_f_table = {
+            ["pid"] = evt_pid,
+            ["ppid"] = evt_ppid,
+            ["type"] = "execve",
+            ["username"] = evt.field(username),
+            ["procname"] = evt.field(procname),
+            ["procargs"] = evt.field(procargs),
+            ["kind"] = "execve"
+        }
+        -- io.stderr:write("read_or_write: " .. type(evt.field(procargs)) .. "\n")
+        print(cbor.encode(that_f_table))
+    end
+end
+
 function on_call_read()
     log_read_or_write("read")
 end
 
 function on_call_write()
     log_read_or_write("write")
+end
+
+function on_call_execve()
+    log_execve()
 end
 
 function on_call_pipe2()
@@ -211,6 +236,7 @@ function on_call_clone()
             ["ppid"] = pid_value,
             ["pid"] = res_value,
             ["username"] = evt.field(username),
+            ["procargs"] = evt.field(procargs),
             ["kind"] = "clone"
         }
         print(cbor.encode(final_table))
@@ -258,6 +284,7 @@ function on_event()
         .case("dup2", on_call_dup2)
         .case("clone", on_call_clone)
         .case("close", on_call_close)
+        .case("execve", on_call_execve)
     -- .default(function() print("Unknown syscall") end)
         .process()
 

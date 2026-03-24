@@ -1,2 +1,2 @@
 cbor2
-neo4k
+neo4j
