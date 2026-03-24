@@ -136,6 +136,7 @@ function log_read_or_write(op_type)
         evt_pid = evt.field(pid)
         evt_ppid = evt.field(ppid)
         isapipe = false
+        inode = evt.field(f_fd_ino)
         if evt.field(f_filetype) == "pipe" and (name == nil or name == "") then
             name = "/?/pipe/" .. evt.field(f_fd_ino)
             isapipe = true
@@ -159,6 +160,7 @@ function log_read_or_write(op_type)
             ["username"] = evt.field(username),
             ["procname"] = evt.field(procname),
             ["procargs"] = evt.field(procargs),
+            ["inode"] = inode,
             ["ispipe"] = isapipe,
             ["kind"] = "fd_rw"
         }
@@ -236,6 +238,7 @@ function on_call_clone()
             ["ppid"] = pid_value,
             ["pid"] = res_value,
             ["username"] = evt.field(username),
+            ["procname"] = evt.field(procname),
             ["procargs"] = evt.field(procargs),
             ["kind"] = "clone"
         }
@@ -283,6 +286,7 @@ function on_event()
         .case("pipe2", on_call_pipe2)
         .case("dup2", on_call_dup2)
         .case("clone", on_call_clone)
+        .case("vfork", on_call_clone) -- Probably not great... But seems to work! :)
         .case("close", on_call_close)
         .case("execve", on_call_execve)
     -- .default(function() print("Unknown syscall") end)
