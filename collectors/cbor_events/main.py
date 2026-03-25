@@ -53,7 +53,7 @@ class ProcessingStep(Enum):
 # # if the process has already been seen (to avoid processing multiple
 # # execve, or detect the apparition of events related to a process
 # # we do not know about!)
-pidProcessingState = dict()
+pidProcessingState = {}
 
 
 class FSEventData:
@@ -102,6 +102,15 @@ class ExecveEventData:
         return f"ExecveEventData(pid={self.pid}, ppid={self.ppid}, username={self.username}, procname={self.procname}, procargs={self.procargs})"
 
 
+class Pipe2EventData:
+    def __init__(self, raw_object: dict):
+        self.pid = raw_object[b"pid"]
+        self.inode = int(raw_object[b"ino"].decode(encoding="utf-8"))
+
+    def __repr__(self):
+        return f"Pipe2EventData(pid={self.pid}, inode={self.inode})"
+
+
 def is_process_already_tracked(pid: int, session: Session) -> bool:
     res = session.run("MATCH (p:Process {pid: $pid}) RETURN p", pid=pid)
     return len(list(res)) != 0
@@ -113,11 +122,11 @@ def handle_clone_event(data, session: Session):
         return
     # Decode the CBOR data
     event_data = CloneEventData(data)
-    logger.info(f"Clone Event: {event_data}")
+    logger.debug(f"Clone Event: {event_data}")
     if event_data.pid not in pidProcessingState:
         pidProcessingState[event_data.pid] = ProcessingStep.CLONE
     else:
-        logger.warning(
+        logger.debug(
             f"Received clone event for pid {event_data.pid} which is already in state {pidProcessingState[event_data.pid]}\n\tPID reuse?"
         )
     # Check if the process's parent is already tracked (if ppid != 0 and
@@ -126,21 +135,23 @@ def handle_clone_event(data, session: Session):
     # # collector started)
     if (event_data.ppid != 0) and (event_data.ppid not in pidProcessingState):
         if is_process_already_tracked(event_data.ppid, session):
-            logger.info(
+            logger.debug(
                 f"Received clone event for pid {event_data.pid} with parent ppid {event_data.ppid} which is already tracked in the DB, but not in pidProcessingState\n\tThis can happen if the parent process was created before the collector started, or if we missed the clone event of the parent process\n\tThe parent process will be added to pidProcessingState with state CLONE, but no placeholder will be created in the DB (as it already exists)"
             )
             pidProcessingState[event_data.ppid] = ProcessingStep.CLONE
         else:
-            logger.info(
+            logger.debug(
                 f"Received clone event for pid {event_data.pid} with unknown parent ppid {event_data.ppid}"
             )
-            logger.info(
+            logger.debug(
                 f"Creating placeholder for parent process with ppid {event_data.ppid}"
             )
             # Create the placeholder in the DB
             session.run(
-                "CREATE (n:Behaviour:Process {procname: 'unknown_parent', ppid: 0, pid: $pid, type: 'process', procargs: [], username: 'unknown_user'})",
+                "CREATE (n:Behaviour:Process {procname: $procname, ppid: 0, pid: $pid, type: 'process', procargs: $procargs, username: 'unknown_user'})",
                 pid=event_data.ppid,
+                procname=event_data.procname,
+                procargs=event_data.procargs,
             )
             # Add the parent process to the pidProcessingState, to avoid creating multiple placeholders if we receive multiple events related to the parent process
             pidProcessingState[event_data.ppid] = ProcessingStep.CLONE
@@ -165,9 +176,9 @@ def handle_execve_event(data, session: Session):
         return
     # Decode the CBOR data
     event_data = ExecveEventData(data)
-    logger.info(f"Execve Event: {event_data}")
+    logger.debug(f"Execve Event: {event_data}")
     if event_data.pid not in pidProcessingState:
-        logger.warning(
+        logger.debug(
             f"Received execve event for pid {event_data.pid} which is not in pidProcessingState\n\tPID reuse? Missed clone event?"
         )
         # FIXME Actually create the process in the DB, with a "placeholder" procname
@@ -178,20 +189,35 @@ def handle_execve_event(data, session: Session):
         pidProcessingState[event_data.pid] = ProcessingStep.EXECVE
 
     # Update the process node with the real procname and procargs
-    session.run(
+    res = session.run(
         """
         MATCH (n:Process {pid: $pid, ppid: $ppid})
         SET n.procargs = $procargs,
             n.username = $username,
-            n.procname = $procname""",
+            n.procname = $procname
+        RETURN elementId(n) AS node_id""",
         pid=event_data.pid,
         ppid=event_data.ppid,
         procname=event_data.procname,
         procargs=event_data.procargs,
         username=event_data.username,
     )
-    # TODO Parse the cmdline and extract behaviours, and attach them to the process
-    # # node according to the rules defined in the paper
+    node_id = res.single()["node_id"]  # pyright: ignore[reportOptionalSubscript]
+    logger.info(
+        f"Updated process node with id {node_id} for pid {event_data.pid} with procname {event_data.procname} and procargs {event_data.procargs}"
+    )
+
+    # Parse the cmdline and extract behaviours
+    parsed_cmdline = cl_parser.parse(
+        parser.ParserRequest(program_name=event_data.procname, args=event_data.procargs)
+    )
+    if parsed_cmdline:
+        logger.info(
+            f"Parsed command line for process {event_data.pid}: {parsed_cmdline.get_subparts()}"
+        )
+        # TODO Attach them to the process node according to the rules defined in the paper
+        # Note : Use the node_id property to know where to insert. Useful to move the root in the case of
+        # # a single inherent behaviour.
 
 
 def handle_fd_rw_event(data, session: Session):
@@ -199,10 +225,14 @@ def handle_fd_rw_event(data, session: Session):
         logger.error("Invalid data provided to handle_fd_rw_event: " + str(data))
         return
     # Decode the CBOR data
-    event_data = FSEventData(data)
-    logger.info(f"FD RW Event: {event_data}")
+    try:
+        event_data = FSEventData(data)
+    except KeyError:
+        logger.error("Missing expected keys in fd_rw event data: " + str(data))
+        return
+    logger.debug(f"FD RW Event: {event_data}")
     if event_data.pid not in pidProcessingState:
-        logger.warning(
+        logger.debug(
             f"Received fd_rw event for pid {event_data.pid} which is not in pidProcessingState\n\tPID reuse? Missed clone event?\n\tThis event will be ignored"
         )
         return
@@ -224,13 +254,51 @@ def handle_fd_rw_event(data, session: Session):
     )
 
 
+def handle_pipe2_event(data, session: Session):
+    if not isinstance(data, dict):
+        logger.error("Invalid data provided to handle_fd_rw_event: " + str(data))
+        return
+
+    # Decode the CBOR data
+    event_data = Pipe2EventData(data)
+    logger.debug(f"Pipe2 Event: {event_data}")
+    if event_data.pid not in pidProcessingState:
+        if is_process_already_tracked(event_data.pid, session):
+            logger.debug(
+                f"Received pipe2 event for pid {event_data.pid} which is already tracked in the DB, but not in pidProcessingState\n\tThis can happen if the process was created before the collector started, or if we missed the clone event of the process\n\tThe process will be added to pidProcessingState with state EXECVE, but no placeholder will be created in the DB (as it already exists)"
+            )
+            pidProcessingState[event_data.pid] = ProcessingStep.EXECVE
+        else:
+            logger.debug(
+                f"Received pipe2 event for pid {event_data.pid} which is not in pidProcessingState\n\tPID reuse? Missed clone event?\n\tThis event will be ignored"
+            )
+            return
+    session.run(
+        """
+        MATCH (p:Process {pid: $pid})
+        MERGE (f:File {name: $name, inode: $inode})
+        CREATE (p)-[e:CREATEPIPE]->(f)""",
+        pid=event_data.pid,
+        inode=event_data.inode,
+        name=f"/?/pipe/{event_data.inode}",
+    )
+
+
 def main(file_path, driver: Driver):
     logger.info("Starting cbor-events collector")
     # try:
-
+    received_events = {"fd_rw": 0, "clone": 0, "execve": 0, "pipe2": 0}
     with driver.session(database="sysevents") as session:
+        session.run(
+            "MATCH (n) DETACH DELETE n"
+        )  # TODO Remove this line. This is for debug purposes
         with open(file_path, "rb") as f:
             while True:
+                # Print the stats and overwrite the previous line
+                print(
+                    f"Received events: fd_rw={received_events['fd_rw']}, clone={received_events['clone']}, execve={received_events['execve']}, pipe2={received_events['pipe2']}",
+                    end="\r",
+                )
                 try:
                     # Read a single CBOR object from the file
                     data = cbor2.load(f)
@@ -238,10 +306,16 @@ def main(file_path, driver: Driver):
                         continue
                     if data[b"kind"] == b"fd_rw":
                         handle_fd_rw_event(data, session)
+                        received_events["fd_rw"] += 1
                     elif data[b"kind"] == b"clone":
                         handle_clone_event(data, session)
+                        received_events["clone"] += 1
                     elif data[b"kind"] == b"execve":
                         handle_execve_event(data, session)
+                        received_events["execve"] += 1
+                    elif data[b"kind"] == b"pipe2":
+                        handle_pipe2_event(data, session)
+                        received_events["pipe2"] += 1
                     else:
                         event_kind = data[b"kind"].decode(encoding="utf-8")
                         logger.debug(f"Unknown event kind: {event_kind}")
@@ -258,9 +332,14 @@ def main(file_path, driver: Driver):
 
 
 if __name__ == "__main__":
+    # if len(sys.argv) < 2:
+    #     print("Usage: python main.py <input_fifo>")
+    #     sys.exit(1)
     if len(sys.argv) < 2:
-        print("Usage: python main.py <input_fifo>")
-        sys.exit(1)
+        logger.warning("No input file provided. Using stdin...")
+        input_file = "/dev/stdin"
+    else:
+        input_file = sys.argv[1]
     with GraphDatabase.driver(URI, auth=AUTH) as driver:
         driver.verify_connectivity()
-        main(sys.argv[1], driver)
+        main(input_file, driver)
