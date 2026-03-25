@@ -34,3 +34,8 @@
 
 #### Properties
 - `type`: string, the type of the event (*e.g.*, "read", "write")
+
+### CreatePipe
+*Note: For debug purposes to track down the creation of some seemingly useless pipes. Created when receiving a pipe2 event*
+- From: Process
+- To: File
