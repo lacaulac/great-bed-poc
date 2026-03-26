@@ -126,7 +126,7 @@ def handle_clone_event(data, session: Session):
     if event_data.pid not in pidProcessingState:
         pidProcessingState[event_data.pid] = ProcessingStep.CLONE
     else:
-        logger.debug(
+        logger.warning(
             f"Received clone event for pid {event_data.pid} which is already in state {pidProcessingState[event_data.pid]}\n\tPID reuse?"
         )
     # Check if the process's parent is already tracked (if ppid != 0 and
@@ -202,7 +202,13 @@ def handle_execve_event(data, session: Session):
         procargs=event_data.procargs,
         username=event_data.username,
     )
-    node_id = res.single()["node_id"]  # pyright: ignore[reportOptionalSubscript]
+    res_single = res.single()
+    if res_single is None:
+        logger.warning(
+            f"Could not find process node for pid {event_data.pid} and ppid {event_data.ppid} to update with execve event data. This can happen if we missed the clone event of the process, or if the process was created before the collector started. The execve event will be ignored."
+        )
+        return
+    node_id = res_single["node_id"]  # pyright: ignore[reportOptionalSubscript]
     logger.info(
         f"Updated process node with id {node_id} for pid {event_data.pid} with procname {event_data.procname} and procargs {event_data.procargs}"
     )
@@ -212,15 +218,101 @@ def handle_execve_event(data, session: Session):
         parser.ParserRequest(program_name=event_data.procname, args=event_data.procargs)
     )
     if parsed_cmdline:
-        logger.info(
-            f"Parsed command line for process {event_data.pid}: {parsed_cmdline.get_subparts()}"
-        )
+        subparts = parsed_cmdline.get_subparts()
+        logger.info(f"Parsed command line for process {event_data.pid}: {subparts}")
         # TODO Attach them to the process node according to the rules defined in the paper
         # Note : Use the node_id property to know where to insert. Useful to move the root in the case of
         # # a single inherent behaviour.
+        root_node_id = node_id
+
+        inherent = subparts["inherent"]
+        inherent_amount = len(inherent)
+        option_behaviours = subparts["options"]
+        arguments = subparts["arguments"]
+
+        if inherent_amount == 1:
+            # Insert the inherent behaviour as a node, link the process to it, and make it the new root
+            inherent_behaviour = inherent[0]
+            res = session.run(
+                """MATCH (p:Process {pid: $pid, ppid: $ppid})
+                    CREATE (p)-[e:CHILD_OF]->(b:Behaviour {type: $bhv})
+                    RETURN elementId(b) AS node_id""",
+                pid=event_data.pid,
+                ppid=event_data.ppid,
+                bhv=inherent_behaviour,
+            )
+            res = res.single()
+            if res is None:
+                logger.error(
+                    "Couldn't get the ID of the inherent behaviour we just created."
+                )
+                return
+            root_node_id = res["node_id"]
+        elif inherent_amount > 1:
+            # Insert the inherent behaviours as nodes, link the process to all of them
+            for bhv in inherent:
+                session.run(
+                    """MATCH (p:Process {pid: $pid, ppid: $ppid})
+                        CREATE (p)-[e:CHILD_OF]->(b:Behaviour {type: $bhv})""",
+                    pid=event_data.pid,
+                    ppid=event_data.ppid,
+                    bhv=bhv,
+                )
+
+        # Insert the behaviours
+        for option in option_behaviours:
+            # Create the behaviour node with a link from the root to it and get its ID post-creation
+            # For every behaviour associated with the option
+            for bhv in option["behaviours"]:
+                bhv_res = session.run(
+                    """
+                    MATCH (root) WHERE elementId(root) = $root_id
+                    CREATE (root)-[:CHILD_OF]->(b:Behaviour {type: $bhv, option: $option_name})
+                    RETURN elementId(b) AS node_id
+                    """,
+                    root_id=root_node_id,
+                    bhv=bhv,
+                    option_name=option["name"],
+                )
+                bhv_res_single = bhv_res.single()
+                if bhv_res_single is None:
+                    logger.error(
+                        "Couldn't get the ID of the behaviour we just created."
+                    )
+                    continue
+                behaviour_node_id = bhv_res_single["node_id"]
+                if "argument" in option:
+                    # Insert the argument as a children of the behaviour node
+                    session.run(
+                        """
+                        MATCH (b) WHERE elementId(b) = $bhv_id
+                        CREATE (b)-[:CHILD_OF]->(a:Argument {type: $argtype, value: $argvalue})
+                        """,
+                        bhv_id=behaviour_node_id,
+                        argtype=option["argument"]["type"],
+                        argvalue=option["argument"]["value"],
+                    )
+        for argument in arguments:
+            session.run(
+                """
+                MATCH (b) WHERE elementId(b) = $bhv_id
+                CREATE (b)-[:CHILD_OF]->(a:Argument {type: $argtype, value: $argvalue})
+                """,
+                bhv_id=root_node_id,
+                argtype=argument["type"],
+                argvalue=argument["value"],
+            )
 
 
 def handle_fd_rw_event(data, session: Session):
+    #
+    #
+    #
+    # FIXME Il faut que ces événements soient ajoutés COMME ENFANT d'un comportement
+    # # inhérent unique pour que les règles de réécriture de graphe fonctionnent correctement
+    #
+    #
+    #
     if not isinstance(data, dict):
         logger.error("Invalid data provided to handle_fd_rw_event: " + str(data))
         return
