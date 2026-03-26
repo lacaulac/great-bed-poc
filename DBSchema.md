@@ -5,6 +5,7 @@
 ### Behaviour
 
 - `type`: string, the type of the behaviour (e.g., "process", "FILE_READ", "FILE_WRITE", *etc*.)
+- `option`: string, optional, the option that corresponds to the behaviour (e.g., `l` for `FS_INFO` in the case of the `ls` program)
 
 ### Process
 
@@ -24,7 +25,7 @@
 ### Information
 - `type`: string, indicates the type of value of the argument that is represented by this node
   - Possible values include U16 (unsigned 16-bits integer, meant for ports), Integer, Float, Boolean, String and other string-derived types: IPAddress (both IPv4 and IPv6), RemotePath, LocalPath, URL
-- `value`: Any (but probably a string), the value of the aforementioned argument
+- `value`: string, the value of the aforementioned argument. Yes, string even for the numbers.
 
 ## Relationship types
 
