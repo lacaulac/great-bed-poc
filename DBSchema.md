@@ -21,6 +21,11 @@
   - *Note: pipes path are represented as `/?/pipe/{inode}`*
 - `inode`: number, the inode of the file (*e.g.*, 12345)
 
+### Information
+- `type`: string, indicates the type of value of the argument that is represented by this node
+  - Possible values include U16 (unsigned 16-bits integer, meant for ports), Integer, Float, Boolean, String and other string-derived types: IPAddress (both IPv4 and IPv6), RemotePath, LocalPath, URL
+- `value`: Any (but probably a string), the value of the aforementioned argument
+
 ## Relationship types
 
 ### CHILD_OF
