@@ -16,6 +16,7 @@
 - `procname`: string, the name of the process (*e.g.*, "bash")
 - `procargs`: list of strings, the command-line arguments of the process (*e.g.*, ["ls", "-l", "-a"] for the command `ls -l -a`)
 - `username`: string, the username of the user that executed the process (*e.g.*, "alice")
+- `root`: string, the ID of the node that should be used as the root for inserting behaviours and other operations. Meant for single inherent behaviours taking over the the root node "role". By default, should be duplicate of the the process node's ID
 
 ### File
 - `name`: string, the path to the file (*e.g.*, "./secret.txt")

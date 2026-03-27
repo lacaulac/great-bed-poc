@@ -148,7 +148,7 @@ def handle_clone_event(data, session: Session):
             )
             # Create the placeholder in the DB
             session.run(
-                "CREATE (n:Behaviour:Process {procname: $procname, ppid: 0, pid: $pid, type: 'process', procargs: $procargs, username: 'unknown_user'})",
+                "CREATE (n:Behaviour:Process {procname: $procname, ppid: 0, pid: $pid, type: 'process', procargs: $procargs, username: 'unknown_user'}) SET n.root=elementId(n)",
                 pid=event_data.ppid,
                 procname=event_data.procname,
                 procargs=event_data.procargs,
@@ -161,6 +161,7 @@ def handle_clone_event(data, session: Session):
         MATCH (a:Process {pid: $ppid})
         CREATE (a)-[:CHILD_OF]->
         (b:Process:Behaviour {pid: $pid, ppid: $ppid, procname: $procname, procargs: $procargs, username: $username, type: 'process'})
+        SET b.root = elementId(b)
         """,
         ppid=event_data.ppid,
         pid=event_data.pid,
@@ -236,6 +237,7 @@ def handle_execve_event(data, session: Session):
             res = session.run(
                 """MATCH (p:Process {pid: $pid, ppid: $ppid})
                     CREATE (p)-[e:CHILD_OF]->(b:Behaviour {type: $bhv})
+                    SET p.root = elementId(b)
                     RETURN elementId(b) AS node_id""",
                 pid=event_data.pid,
                 ppid=event_data.ppid,
@@ -335,7 +337,8 @@ def handle_fd_rw_event(data, session: Session):
     # # # if it did.
     session.run(
         """
-        MATCH (p:Process {pid: $pid, ppid: $ppid})
+        MATCH (proc:Process {pid: $pid, ppid: $ppid})
+        MATCH (p) WHERE elementId(p) = proc.root
         MERGE (f:File {inode: $inode, name: $filename})
         CREATE (p)-[e:EVENT {type: $eventtype}]->(f)""",
         pid=event_data.pid,
