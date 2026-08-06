@@ -11,9 +11,16 @@ legacyfilter  := "not(fd.name contains 'mozilla') and not(fd.name contains '/dev
 sysdigcmd := "sysdig --modern-bpf"
 fifopath := `mktemp --dry-run --suffix .fifo`
 uv := `which uv`
+savecborfilepath := `pwd` + "/save.cbor"
 
 run-new:
-    sudo {{sysdigcmd}} -c cbor_events "user.uid!=0 and {{filter}}" | sudo {{uv}} run --directory collectors/cbor_events/ main.py
+    sudo {{sysdigcmd}} -c cbor_events "user.uid!=0 and {{filter}}" | {{uv}} run --directory collectors/cbor_events/ main.py
+
+run-save:
+    sudo {{sysdigcmd}} -c cbor_events "user.uid!=0 and {{filter}}" | tee {{savecborfilepath}} | {{uv}} run --directory collectors/cbor_events/ main.py
+
+run-load:
+    {{uv}} run --directory collectors/cbor_events/ main.py {{savecborfilepath}}
 
 run-chisel:
     sudo {{sysdigcmd}} -c cbor_events "{{userfilter}} and {{legacyfilter}}"

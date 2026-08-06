@@ -176,7 +176,13 @@ def handle_execve_event(data, session: Session):
         logger.error("Invalid data provided to handle_execve_event: " + str(data))
         return
     # Decode the CBOR data
-    event_data = ExecveEventData(data)
+    try:
+        event_data = ExecveEventData(data)
+    except Exception as e:
+        logger.error(
+            f"Error occurred while decoding execve event data: {e}\n\tData: {data}\n\tThis event will be ignored."
+        )
+        return
     logger.debug(f"Execve Event: {event_data}")
     if event_data.pid not in pidProcessingState:
         logger.debug(
