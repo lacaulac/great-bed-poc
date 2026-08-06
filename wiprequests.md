@@ -4,7 +4,7 @@
 
 ### Rule A1
 
-```
+```python
 MATCH p=(n1)-[e1]->(neutral: Behaviour {type: "NEUTRAL"})-[e2]->(n2)
 DETACH DELETE neutral
 CREATE (n1)-[:CHILD_OFCHILD_OF]->(n2)
@@ -12,7 +12,7 @@ CREATE (n1)-[:CHILD_OFCHILD_OF]->(n2)
 
 ### Rule A2
 
-```
+```python
 MATCH p=()-[]->(neutral: Behaviour {type: "NEUTRAL"})
 DETACH DELETE neutral
 ```
@@ -24,7 +24,7 @@ DETACH DELETE neutral
 
 1. Create explicit data transmission chains and discard COPYs --- do __once__
 
-```
+```python
 MATCH p=(sourceNode:File)<-[:EVENT {type:"read"}]-(bhv:Behaviour {type:"COPY"})-[:EVENT {type:"write"}]->(targetNode:File)
 MERGE (targetNode)-[:SOURCE]->(sourceNode)
 DETACH DELETE bhv
@@ -35,7 +35,7 @@ TANT QUE CHANGEMENTS
 
 2. Propagate the chains --- do __until no more changes are introduced__
 
-```
+```python
 MATCH chain=(dst:File)-[:SOURCE]->(int:File)-[:SOURCE]->(src:File)
 MERGE (dst)-[newr:SOURCE]->(src)
 return chain, newr
@@ -43,7 +43,7 @@ return chain, newr
 
 3. Propagate the chain to read operations --- do __once__
 
-```
+```python
 MATCH chain=(bhv:Behaviour)-[:EVENT {type: "read"}]->(int:File)-[:SOURCE]->(src:File)
 MERGE (bhv)-[:EVENT {type: "read"}]->(src)
 return chain
@@ -51,14 +51,14 @@ return chain
 
 4. Delete intermediary nodes --- do __once__
 
-```
+```python
 MATCH chain=(dst:File)-[:SOURCE]->(int:File)-[:SOURCE]->(src:File)
 DETACH DELETE int
 ```
 
 5. Delete file nodes that have been read *and* are sources --- do __once__
 
-```
+```python
 MATCH chain=(bhv:Behaviour)-[:EVENT {type: "read"}]->(int:File)-[:SOURCE]->(src:File)
 DETACH DELETE int
 ```
@@ -84,7 +84,7 @@ RETURN sourceNode
 
 ### Rules B1-B3
 
-```
+```python
 MATCH chain=(bhv:Behaviour)-[lnk]->(targetNode:Argument)
 WHERE bhv.type <> "NET_CFG" AND targetNode.type in ["URL", "IPAddress", "RemotePath"]
 MERGE (bhv)-[:CHILD_OF]->(:Behaviour {type: "NET_CFG"})-[:CHILD_OF]->(targetNode)
@@ -95,11 +95,22 @@ DETACH DELETE lnk
 
 **WARNING : __UNTESTED__** since the development event sequence did not contain any event that would have qualified
 
-```
+```python
 MATCH chain=(bhv:Behaviour)-[lnk]->(childBhv:Behaviour)
 WHERE bhv.type in ["FILE_READ", "FILE_WRITE"]
 AND childBhv.type = "NET_CFG"
 SET bhv.type = "NET_COMS"
+```
+
+### Rules C1-C4
+
+```python
+MATCH chain=(elem2:Behaviour)<-[]-(elem1:Behaviour)-[]->(elem3:Behaviour)
+WHERE elem2.type in ["NET_COMS", "CMD_EXEC"]
+AND elem3.type in ["FILE_READ", "FILE_WRITE"]
+AND NOT EXISTS ((elem2)-[]->(elem3))
+MERGE (elem2)-[newlink:CHILD_OF {confidence: 0.5}]->(elem3)
+return chain
 ```
 
 #  `\_(''/)_/`
