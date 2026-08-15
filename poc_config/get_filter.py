@@ -5,7 +5,7 @@ ignored_partial_path = [
     "/lib/x86_64-linux-gnu/",
 ]
 
-filter = ""
+filter = "and user.uid=1001 "
 
 for elem in ignored_partial_process_name:
     filter += f"and not (proc.name contains '{elem}') "

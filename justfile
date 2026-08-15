@@ -22,6 +22,15 @@ run-save:
 run-load:
     {{uv}} run --directory collectors/cbor_events/ main.py {{savecborfilepath}}
 
+save TRACENAME:
+    sudo {{sysdigcmd}} -c cbor_events "user.uid!=0 and {{filter}}" | tee `pwd`/traces/{{TRACENAME}}.cbor | {{uv}} run --directory collectors/cbor_events/ main.py
+
+load TRACENAME:
+    {{uv}} run --directory collectors/cbor_events/ main.py `pwd`/traces/{{TRACENAME}}.cbor
+
+list:
+    ls -1 `pwd`/traces/
+
 run-chisel:
     sudo {{sysdigcmd}} -c cbor_events "{{userfilter}} and {{legacyfilter}}"
 
