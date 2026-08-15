@@ -22,7 +22,7 @@ RETURN n1, n2, r1, r2
 ```python
 MATCH p=(n1)-[e1]->(neutral: Behaviour {type: "NEUTRAL"})-[e2]->(n2)
 DETACH DELETE neutral
-CREATE (n1)-[:CHILD_OFCHILD_OF]->(n2)
+CREATE (n1)-[:CHILD_OF]->(n2)
 ```
 
 ### Rule A2
@@ -186,6 +186,80 @@ return chain
 
 ### Rule D2
 
+1. Create a bunch of "redirection" edges
+
+```python
+MATCH (n2:Behaviour)<-[e1:CHILD_OF]-(n1:Behaviour)-[e2:CHILD_OF]->(n3:Behaviour), (n3)-[edgetomove:EVENT]->(othernode)
+WHERE n2 <> n3
+AND n2.type = n3.type
+AND n2.type <> "process"
+AND elementId(n2)<elementId(n3)
+MERGE (n2)-[newedge:EVENT]->(othernode)
+SET newedge=properties(edgetomove)
+DETACH DELETE edgetomove
+return n2, newedge, othernode
+```
+
+2. Clean it up
+
+```python
+MATCH (a:Behaviour)-[lnk1:EVENT]->(fm:File)<-[lnk2:EVENT]-(b:Behaviour),(a)<-[]-(c:Behaviour)-[]
+->(b)
+WHERE elementId(lnk1) > elementId(lnk2)
+AND a.type = b.type
+AND a <> b
+DETACH DELETE b
+```
+
+## Rules 2
+
+### Rule E1
+
+```python
+MATCH (n1:Behaviour {type:"CMD_EXEC"})-[ed:CHILD_OF]->(n2:Behaviour {type:"FILE_READ"})-[]->(n3:File)
+WITH n1 as n1, n2 as n2, n3 as n3, ed as ed, CASE WHEN ed.confidence IS NULL THEN 1.0 ELSE ed.confidence END AS confidence
+MERGE (n3)-[:DATA]->(scriptExec:IOA {type:"Script Execution", confidence: confidence})-[:creator]->(n1)
+```
+
+### Rule E2
+
+```python
+MATCH (n1:Behaviour {type:"NET_COMS"})-[ed:CHILD_OF]->(n2:Behaviour {type:"FILE_WRITE"})-[]->(n3:File)
+WITH n1 as n1, n2 as n2, n3 as n3, ed as ed, CASE WHEN ed.confidence IS NULL THEN 1.0 ELSE ed.confidence END AS confidence
+MERGE (n3)<-[:DATA]-(scriptExec:IOA {type:"File Download", confidence: confidence})-[:creator]->(n1)
+```
+
+### Rule E3
+
+```python
+MATCH (n1:Behaviour {type:"NET_COMS"})-[ed:CHILD_OF]->(n2:Behaviour {type:"FILE_READ"})-[]->(n3:File)
+WITH n1 as n1, n2 as n2, n3 as n3, ed as ed, CASE WHEN ed.confidence IS NULL THEN 1.0 ELSE ed.confidence END AS confidence
+MERGE (n3)-[:DATA]->(scriptExec:IOA {type:"File Upload", confidence: confidence})-[:creator]->(n1)
+```
+
+### Rule E4
+
+```python
+MATCH (n1:Behaviour {type:"SYS_INFO"})-[ed:CHILD_OF]->(n2:Behaviour {type:"FILE_WRITE"})-[]->(n3:File)
+WITH n1 as n1, n2 as n2, n3 as n3, ed as ed, CASE WHEN ed.confidence IS NULL THEN 1.0 ELSE ed.confidence END AS confidence
+MERGE (n3)<-[:DATA]-(scriptExec:IOA {type:"Sys Recon", confidence: confidence})-[:creator]->(n1)
+```
+
+### Rule E5
+
+```python
+MATCH (n1:Behaviour {type:"FS_INFO"})-[ed:CHILD_OF]->(n2:Behaviour {type:"FILE_WRITE"})-[]->(n3:File)
+WITH n1 as n1, n2 as n2, n3 as n3, ed as ed, CASE WHEN ed.confidence IS NULL THEN 1.0 ELSE ed.confidence END AS confidence
+MERGE (n3)<-[:DATA]-(scriptExec:IOA {type:"FS Recon", confidence: confidence})-[:creator]->(n1)
+```
+
+### Rule E6
+
+```python
+MATCH (n1:Behaviour {type:"NET_INFO"})-[ed:CHILD_OF]->(n2:Behaviour {type:"FILE_WRITE"})-[]->(n3:File)
+WITH n1 as n1, n2 as n2, n3 as n3, ed as ed, CASE WHEN ed.confidence IS NULL THEN 1.0 ELSE ed.confidence END AS confidence
+MERGE (n3)<-[:DATA]-(scriptExec:IOA {type:"Net Recon", confidence: confidence})-[:creator]->(n1)
+```
 
 
 #  `\_(''/)_/`
