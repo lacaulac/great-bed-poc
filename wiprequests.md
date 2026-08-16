@@ -261,6 +261,20 @@ WITH n1 as n1, n2 as n2, n3 as n3, ed as ed, CASE WHEN ed.confidence IS NULL THE
 MERGE (n3)<-[:DATA]-(scriptExec:IOA {type:"Net Recon", confidence: confidence})-[:creator]->(n1)
 ```
 
+### Rule E7
+
+```python
+MATCH (n1:Process)-[ed:SOURCE]->(n2:File)
+MERGE (n2)-[:DATA]->(scriptExec:IOA {type:"Process Execution", confidence: 1.0})-[:creator]->(n1)
+```
+
+### Rules E8-E9
+
+```python
+MATCH (n1: File)-[e4:DATA]->(n2:IOA)-[e5:creator]->(n3:Behaviour)
+where n2.type in ["Script Execution", "Process Execution"]
+SET n2.type = "Generic Execution"
+```
 
 #  `\_(''/)_/`
 
