@@ -101,6 +101,7 @@ function on_init()
     ppid = chisel.request_field("proc.ppid")
     procname = chisel.request_field("proc.name")
     procargs = chisel.request_field("proc.cmdline")
+    procexepath = chisel.request_field("proc.exepath")
     username = chisel.request_field("user.name")
     f_fd_ino = chisel.request_field("fd.ino")
 
@@ -183,6 +184,7 @@ function log_execve()
             ["username"] = evt.field(username),
             ["procname"] = evt.field(procname),
             ["procargs"] = evt.field(procargs),
+            ["procexepath"] = evt.field(procexepath),
             ["kind"] = "execve"
         }
         -- io.stderr:write("read_or_write: " .. type(evt.field(procargs)) .. "\n")

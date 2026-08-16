@@ -97,6 +97,7 @@ class ExecveEventData:
         tmp_procargs = raw_object[b"procargs"]
         # Split the procargs into a list of arguments on NULL bytes
         self.procargs = [e.decode("utf-8") for e in tmp_procargs.split(b"\t")][1:]
+        self.procexepath = raw_object[b"procexepath"].decode(encoding="utf-8")
 
     def __repr__(self):
         return f"ExecveEventData(pid={self.pid}, ppid={self.ppid}, username={self.username}, procname={self.procname}, procargs={self.procargs})"
@@ -114,6 +115,18 @@ class Pipe2EventData:
 def is_process_already_tracked(pid: int, session: Session) -> bool:
     res = session.run("MATCH (p:Process {pid: $pid}) RETURN p", pid=pid)
     return len(list(res)) != 0
+
+def get_inode_for_path(exepath: str) -> int | None:
+    #Try to get the inode value (NOT a file descriptor) for the given absolute path
+    try:
+        # Using os.stat(file_path).st_ino
+        import os
+        inode = os.stat(exepath).st_ino
+        return inode
+    except Exception as e:
+        logger.warning(f"Could not find file for path {exepath}. The inode will be set to None.")
+        logger.warning(f"\tError: {e}")
+    return None
 
 
 def handle_clone_event(data, session: Session):
@@ -201,14 +214,31 @@ def handle_execve_event(data, session: Session):
         MATCH (n:Process {pid: $pid, ppid: $ppid})
         SET n.procargs = $procargs,
             n.username = $username,
-            n.procname = $procname
+            n.procname = $procname,
+            n.procexepath = $procexepath
         RETURN elementId(n) AS node_id""",
         pid=event_data.pid,
         ppid=event_data.ppid,
         procname=event_data.procname,
         procargs=event_data.procargs,
+        procexepath=event_data.procexepath,
         username=event_data.username,
     )
+    procexeinode = get_inode_for_path(event_data.procexepath)
+
+    if procexeinode is not None:
+        # Let's create a File node with the path and inode, as well as an edge going from the Process to the File of Source type
+        session.run(
+            """
+            MATCH (p:Process {pid: $pid, ppid: $ppid})
+            MERGE (f:File {inode: $inode, name: $name})
+            CREATE (p)-[:SOURCE]->(f)""",
+            pid=event_data.pid,
+            ppid=event_data.ppid,
+            inode=procexeinode,
+            name=event_data.procexepath,
+        )
+
     res_single = res.single()
     if res_single is None:
         logger.warning(
