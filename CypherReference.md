@@ -1,5 +1,13 @@
 # Cypher reference (kinda) — please don't judge me too hard
 
+## Cleaning up queries in the "Query" menu with devtools
+
+```javascript
+document.querySelectorAll(".ndl-icon-btn").forEach(e=>{
+    if(e.title.indexOf("Remove") !== -1) {e.click() }
+})
+```
+
 ## Creating a node on its own
 
 Template: `CREATE (n:Label1:Label2 {astringproperty: "bash", anumberproperty: 0})`
